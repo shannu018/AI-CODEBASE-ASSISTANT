@@ -4,12 +4,12 @@ RAG-powered assistant for large-scale codebase comprehension using Google Gemini
 """
 
 import os
-from flask import Flask, send_from_directory
+from flask import Flask, send_from_directory, request, jsonify, session, redirect
 from flask_cors import CORS
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 # Initialize Flask app
 app = Flask(__name__, static_folder='static', static_url_path='')
@@ -30,15 +30,33 @@ from routes.upload     import upload_bp
 from routes.index_route import index_bp
 from routes.chat        import chat_bp
 from routes.analyze     import analyze_bp
+from routes.auth        import auth_bp
 
 app.register_blueprint(upload_bp,    url_prefix='/api')
 app.register_blueprint(index_bp,     url_prefix='/api')
 app.register_blueprint(chat_bp,      url_prefix='/api')
 app.register_blueprint(analyze_bp,   url_prefix='/api')
+app.register_blueprint(auth_bp,      url_prefix='/api')
+
+@app.before_request
+def require_login():
+    # Allow static files, frontend routes, auth endpoints, and health check
+    if request.path.startswith('/api/'):
+        if not request.path.startswith('/api/login') and not request.path.startswith('/api/check_auth'):
+            if not session.get('logged_in'):
+                return jsonify({'error': 'Unauthorized'}), 401
 
 @app.route('/')
 def serve_index():
+    if not session.get('logged_in'):
+        return redirect('/login')
     return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/login')
+def serve_login():
+    if session.get('logged_in'):
+        return redirect('/')
+    return send_from_directory(app.static_folder, 'login.html')
 
 @app.route('/health')
 def health_check():
@@ -48,5 +66,6 @@ if __name__ == '__main__':
     print(">> Starting AI Codebase Assistant...")
     print(f"Upload folder: {app.config['UPLOAD_FOLDER']}")
     print(f"ChromaDB path: {app.config['CHROMA_PERSIST_DIRECTORY']}")
-    print("Server running at http://localhost:5000")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    print(f"Server running at http://localhost:{port}")
+    app.run(debug=False, host='0.0.0.0', port=port, use_reloader=False)

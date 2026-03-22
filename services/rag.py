@@ -7,7 +7,7 @@ Supports both new (google-genai) and old (google-generativeai) SDK.
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 CHAT_MODEL = "models/gemini-2.5-flash"
@@ -119,6 +119,25 @@ def analyze_code(code_snippet: str, task: str) -> str:
     prompts = {
         'explain': f"Explain this code clearly and concisely:\n\n```\n{code_snippet}\n```",
         'impact':  f"Analyze the potential impact of modifying this code. What might break?\n\n```\n{code_snippet}\n```",
-        'tests':   f"Generate comprehensive unit tests for this code:\n\n```\n{code_snippet}\n```"
+        'tests':   f"Generate comprehensive unit tests for this code:\n\n```\n{code_snippet}\n```",
+        'docs':    f"Generate docstrings for every function/class in this code. Use Google-style docstrings. Return ONLY the code with docstrings added:\n\n```\n{code_snippet}\n```"
     }
     return _generate(prompts.get(task, f"Analyze this code:\n\n```\n{code_snippet}\n```"))
+
+
+def explain_diff(diff_text: str) -> str:
+    """Explain a git diff in plain English."""
+    prompt = f"""You are a senior developer reviewing a Git diff.
+Explain these changes clearly:
+- What was changed and why it likely matters
+- Which files/functions were affected
+- Potential risks or things to watch out for
+
+Git Diff:
+```diff
+{diff_text}
+```
+
+Be concise but thorough. Use bullet points for clarity."""
+    return _generate(prompt)
+

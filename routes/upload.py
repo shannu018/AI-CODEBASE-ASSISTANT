@@ -6,6 +6,7 @@ Saves files to UPLOAD_FOLDER with a unique upload_id.
 
 import os
 import uuid
+import shutil
 from flask import Blueprint, request, jsonify, current_app
 
 upload_bp = Blueprint('upload', __name__)
@@ -69,7 +70,97 @@ def get_upload_info(upload_id: str):
     return jsonify(upload)
 
 
+@upload_bp.route('/uploads', methods=['GET'])
+def get_all_uploads():
+    """Returns a list of all uploaded codebases including size."""
+    uploads_list = []
+    upload_folder = current_app.config['UPLOAD_FOLDER']
+    
+    def get_size(start_path='.'):
+        total = 0
+        for dirpath, dirnames, filenames in os.walk(start_path):
+            for f in filenames:
+                fp = os.path.join(dirpath, f)
+                if not os.path.islink(fp):
+                    total += os.path.getsize(fp)
+        return total
+    
+    if os.path.exists(upload_folder):
+        for entry in os.listdir(upload_folder):
+            entry_path = os.path.join(upload_folder, entry)
+            if os.path.isdir(entry_path):
+                file_count = 0
+                proj_name = entry
+                
+                try:
+                    subdirs = os.listdir(entry_path)
+                    if len(subdirs) == 1 and os.path.isdir(os.path.join(entry_path, subdirs[0])):
+                        proj_name = subdirs[0]
+                        for root, _, files in os.walk(os.path.join(entry_path, subdirs[0])):
+                            file_count += len(files)
+                    else:
+                        for root, _, files in os.walk(entry_path):
+                            file_count += len(files)
+                except Exception:
+                    pass
+
+                size_bytes = get_size(entry_path)
+                if size_bytes > 1024 * 1024:
+                    size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+                else:
+                    size_str = f"{size_bytes / 1024:.1f} KB"
+
+                uploads_list.append({
+                    'id': entry,
+                    'name': proj_name,
+                    'file_count': file_count,
+                    'size': size_str
+                })
+    
+    return jsonify({'uploads': uploads_list})
+
+
+@upload_bp.route('/uploads/<upload_id>', methods=['DELETE'])
+def delete_upload(upload_id: str):
+    """Deletes an entire uploaded codebase directory."""
+    target_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], upload_id)
+    if os.path.exists(target_dir) and os.path.isdir(target_dir):
+        shutil.rmtree(target_dir, ignore_errors=True)
+        _uploads.pop(upload_id, None)
+        return jsonify({'success': True, 'message': 'Codebase deleted successfully'})
+    return jsonify({'error': 'Codebase not found'}), 404
+
+
+
+@upload_bp.route('/search', methods=['GET'])
+def search_files():
+    """Search for files by name or path fragment in UPLOAD_FOLDER."""
+    q = (request.args.get('q') or '').strip().lower()
+    if not q or len(q) < 2:
+        return jsonify({'results': []})
+    upload_folder = current_app.config['UPLOAD_FOLDER']
+    results = []
+    if os.path.exists(upload_folder):
+        for root, dirs, files in os.walk(upload_folder):
+            for f in files:
+                rel = os.path.relpath(os.path.join(root, f), upload_folder)
+                if q in rel.lower():
+                    results.append({'path': rel.replace('\\', '/')})
+                    if len(results) >= 30:
+                        break
+            if len(results) >= 30:
+                break
+    return jsonify({'results': results})
+
+
 def get_upload_dir(upload_id: str) -> str | None:
     """Helper used by index route to find upload directory."""
     upload = _uploads.get(upload_id)
-    return upload['upload_dir'] if upload else None
+    if upload:
+        return upload['upload_dir']
+        
+    # Fallback to checking the filesystem in case server reloaded
+    upload_dir = os.path.join(current_app.config['UPLOAD_FOLDER'], upload_id)
+    if os.path.exists(upload_dir) and os.path.isdir(upload_dir):
+        return upload_dir
+    return None
